@@ -9,6 +9,7 @@ import ssl
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -30,7 +31,18 @@ jiggle_every = 0
 jiggle_until = 0.0  # time.monotonic() deadline, 0 = forever
 jiggle_phrase = ""  # non-empty: type it and erase it instead of moving the mouse
 jiggle_wake = threading.Event()
+input_lock = threading.RLock()
+manual_lock = threading.Lock()
+manual_waiters = 0
+manual_cancel = threading.Event()
 fail_lock = threading.Lock()
+MAX_FAILS = 10
+LOCKOUT_S = 15 * 60
+fails = 0
+locked_until = 0.0
+next_attempt = 0.0
+MAX_CONNECTIONS = 8
+MAX_LINE = 64 * 1024  # longest command accepted after login
 
 
 def key(k):
@@ -46,63 +58,130 @@ def button(b):
     return b
 
 
-def run(m):
+@contextmanager
+def manual_input():
+    global manual_waiters
+    # Announce manual input before waiting, so the current cycle can erase and yield.
+    with manual_lock:
+        manual_waiters += 1
+        manual_cancel.set()
+    try:
+        with input_lock:
+            yield
+    finally:
+        with manual_lock:
+            manual_waiters -= 1
+            if not manual_waiters:
+                manual_cancel.clear()
+
+
+def run(m, pressed=None):
     global jiggle_every, jiggle_until, jiggle_phrase
-    t = m["t"]
-    if t == "move":
-        pyautogui.moveRel(int(m["dx"]), int(m["dy"]))
-    elif t == "click":
-        pyautogui.click(button=button(m["b"]))
-    elif t == "down":
-        pyautogui.mouseDown(button=button(m["b"]))
-    elif t == "up":
-        pyautogui.mouseUp(button=button(m["b"]))
-    elif t == "scroll":
-        pyautogui.scroll(int(m["dy"]) * WHEEL)
-    elif t == "type":
-        pyautogui.write(str(m["text"]))  # ponytail: ASCII only; unicode needs a clipboard-paste path
-    elif t == "key":
-        pyautogui.press(key(m["k"]), presses=max(1, min(int(m.get("n", 1)), 500)))
-    elif t == "hotkey":
-        pyautogui.hotkey(*[key(k) for k in m["keys"]])
-    elif t == "jiggle":
-        jiggle_every = max(5, int(m["every"])) if int(m["every"]) else 0
-        minutes = int(m.get("minutes", 0))
-        jiggle_until = time.monotonic() + minutes * 60 if jiggle_every and minutes else 0
-        jiggle_phrase = str(m.get("phrase", ""))[:40] if jiggle_every else ""
-        jiggle_wake.set()
-    elif t == "nudge":
-        nudge()
-    else:
-        raise ValueError(f"unknown command {t!r}")
+    with manual_input():
+        t = m["t"]
+        if t == "move":
+            pyautogui.moveRel(int(m["dx"]), int(m["dy"]))
+        elif t == "click":
+            pyautogui.click(button=button(m["b"]))
+        elif t == "down":
+            b = button(m["b"])
+            pyautogui.mouseDown(button=b)
+            if pressed is not None:
+                pressed.add(b)
+        elif t == "up":
+            b = button(m["b"])
+            pyautogui.mouseUp(button=b)
+            if pressed is not None:
+                pressed.discard(b)
+        elif t == "scroll":
+            pyautogui.scroll(int(m["dy"]) * WHEEL)
+        elif t == "type":
+            pyautogui.write(str(m["text"])[:2000])  # ponytail: ASCII only; unicode needs a clipboard-paste path
+        elif t == "key":
+            pyautogui.press(key(m["k"]), presses=max(1, min(int(m.get("n", 1)), 500)))
+        elif t == "hotkey":
+            pyautogui.hotkey(*[key(k) for k in m["keys"]])
+        elif t == "jiggle":
+            every = int(m["every"])
+            minutes = int(m.get("minutes", 0))
+            if (every != 0 and not 5 <= every <= 3600) or not 0 <= minutes <= 1440:
+                raise ValueError("jiggle every must be 0 or 5..3600; minutes must be 0..1440")
+            phrase = str(m.get("phrase", ""))[:40] if every else ""
+            until = time.monotonic() + minutes * 60 if every and minutes else 0
+            jiggle_every, jiggle_until, jiggle_phrase = every, until, phrase
+            jiggle_wake.set()
+        elif t == "nudge":
+            nudge()
+        else:
+            raise ValueError(f"unknown command {t!r}")
 
 
 def nudge():
-    pyautogui.moveRel(1, 0)
-    pyautogui.moveRel(-1, 0)
+    with input_lock:
+        pyautogui.moveRel(1, 0)
+        pyautogui.moveRel(-1, 0)
 
 
-def type_and_erase(phrase):
-    """Fake activity: type at a human pace, pause, then backspace it away."""
-    for c in phrase:
-        pyautogui.write(c)
-        time.sleep(random.uniform(0.07, 0.22))
-    time.sleep(random.uniform(0.5, 1.5))
-    for _ in phrase:
-        pyautogui.press("backspace")
-        time.sleep(random.uniform(0.05, 0.14))
+def type_and_erase(phrase, cancelled=lambda: False):
+    """Fake activity: type at a human pace, pause, then backspace it away.
+    Stops typing as soon as cancelled() is true, but still erases what it typed."""
+    with input_lock:
+        typed = 0
+        try:
+            for c in phrase:
+                if manual_cancel.is_set() or cancelled():
+                    break
+                if not 32 <= ord(c) <= 126:
+                    continue
+                pyautogui.write(c)
+                typed += 1
+                time.sleep(random.uniform(0.07, 0.22))
+            if typed and not manual_cancel.is_set() and not cancelled():
+                time.sleep(random.uniform(0.5, 1.5))
+        finally:
+            for _ in range(typed):
+                pyautogui.press("backspace")
+                time.sleep(random.uniform(0.05, 0.14))
+        return typed
 
 
 def jiggler():
     global jiggle_every
     while True:
-        # random 70-130% spacing so it doesn't look robotic
-        jiggle_wake.wait(jiggle_every * random.uniform(0.7, 1.3) if jiggle_every else None)
-        jiggle_wake.clear()
-        if jiggle_until and time.monotonic() > jiggle_until:
-            jiggle_every = 0
-        if jiggle_every:
-            type_and_erase(jiggle_phrase) if jiggle_phrase else nudge()
+        try:
+            # random 70-130% spacing so it doesn't look robotic
+            jiggle_wake.wait(jiggle_every * random.uniform(0.7, 1.3) if jiggle_every else None)
+            jiggle_wake.clear()
+            with input_lock:
+                if jiggle_until and time.monotonic() > jiggle_until:
+                    jiggle_every = 0
+                if jiggle_every and not manual_cancel.is_set():
+                    if jiggle_phrase:
+                        phrase = jiggle_phrase
+                        type_and_erase(phrase, lambda: jiggle_wake.is_set() or jiggle_phrase != phrase)
+                    else:
+                        nudge()
+        except Exception as e:
+            print(f"Jiggler error: {e}")
+
+
+def pin_ok(pin, now=time.monotonic):
+    """Reject throttled attempts immediately; MAX_FAILS locks out even the right PIN."""
+    global fails, locked_until, next_attempt
+    with fail_lock:
+        current = now()
+        if current < locked_until or current < next_attempt:
+            return False
+        if secrets.compare_digest(pin.encode(), PIN.encode()):
+            fails = 0
+            return True
+        fails += 1
+        next_attempt = current + 2
+        if fails >= MAX_FAILS:
+            fails = 0
+            locked_until = current + LOCKOUT_S
+            print(f"Too many wrong PINs: logins locked for {LOCKOUT_S // 60} minutes.")
+        return False
 
 
 class Client(socketserver.StreamRequestHandler):
@@ -117,25 +196,35 @@ class Client(socketserver.StreamRequestHandler):
             pin = str(json.loads(self.rfile.readline(256))["pin"])
         except (OSError, ValueError, KeyError, TypeError):
             return
-        if not secrets.compare_digest(pin.encode(), PIN.encode()):
-            # ponytail: serialized 2s penalty caps guessing at ~0.5/s across all connections (LAN only)
-            with fail_lock:
-                time.sleep(2)
+        if not pin_ok(pin):
             self.wfile.write(b'{"ok": false}\n')
             return
         self.request.settimeout(None)
-        self.wfile.write(json.dumps({"ok": True, "jiggle": jiggle_every}).encode() + b"\n")
+        with input_lock:
+            hello = {"ok": True, "jiggle": jiggle_every, "phrase": jiggle_phrase,
+                     "left": max(0, jiggle_until - time.monotonic()) if jiggle_until else 0}
+        self.wfile.write(json.dumps(hello).encode() + b"\n")
         print(f"Connected: {self.client_address[0]}")
+        pressed = set()
         try:
-            for line in self.rfile:
+            while line := self.rfile.readline(MAX_LINE + 1):
+                if len(line) > MAX_LINE:
+                    print("Command too long; disconnecting.")
+                    break
                 try:
-                    run(json.loads(line))
+                    run(json.loads(line), pressed)
                 except Exception as e:
                     print(f"Ignored bad command: {e}")
         except OSError:
             pass
         finally:
-            pyautogui.mouseUp()  # never leave a button stuck down
+            if pressed:
+                with manual_input():
+                    for b in pressed:
+                        try:
+                            pyautogui.mouseUp(button=b)
+                        except Exception as e:
+                            print(f"Could not release {b} button: {e}")
             print("Disconnected")
 
 
@@ -145,7 +234,24 @@ class Server(socketserver.ThreadingTCPServer):
 
     def __init__(self, address, handler, tls):
         self.tls = tls
+        self.connections = threading.BoundedSemaphore(MAX_CONNECTIONS)
         super().__init__(address, handler)
+
+    def process_request(self, request, client_address):
+        if not self.connections.acquire(blocking=False):
+            self.close_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.connections.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.connections.release()
 
 
 def load_tls(path=TLS_FILE):
@@ -185,10 +291,12 @@ def lan_ip():
             return "127.0.0.1"
 
 
-def load_pin():
-    if not PIN_FILE.exists():
-        PIN_FILE.write_text(f"{secrets.randbelow(10**6):06d}")
-    return PIN_FILE.read_text().strip()
+def load_pin(path=PIN_FILE):
+    if not path.exists():
+        # owner-only (0600), so other accounts on this laptop cannot read the PIN
+        with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as f:
+            f.write(f"{secrets.randbelow(10**6):06d}")
+    return path.read_text().strip()
 
 
 if __name__ == "__main__":
