@@ -84,7 +84,7 @@
         <div class="head"><span class="mono">Private</span><span class="mono">[Local only]</span></div>
         <div class="art"><span><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#f5f5f5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg></span></div>
         <h3>No account, no cloud</h3>
-        <p>No ads, no tracking, no servers. Everything stays between your phone and your laptop.</p>
+        <p>No ads, no tracking, no developer-operated app servers. Your controls stay between your phone and your laptop.</p>
       </div>
     </div>
   </section>
@@ -115,16 +115,16 @@
       <div>
         <div class="mono">Optional · Wi-Fi helper</div>
         <h2 style="margin-bottom:14px">Any keyboard layout,<br><b>any OS.</b></h2>
-        <p>Prefer Wi-Fi, use a Mac or Linux, or type in a non-US layout? Run the tiny CtrlDesk helper on your laptop and connect over your local network with a PIN.</p>
+        <p>Prefer Wi-Fi, use a Mac or Linux, or type in a non-US layout? Run the CtrlDesk helper on your laptop and connect over TLS. Enter its address, PIN and certificate fingerprint in the app to verify your laptop before sending any input.</p>
         <div class="cta" style="margin-top:22px">
           <a class="btn yellow" href="download/ctrldesk_server.py" download>Download helper <span class="arrow">↓</span></a>
         </div>
       </div>
       <pre><span class="c"># needs Python 3</span>
-pip install pyautogui
+pip install pyautogui cryptography
 python ctrldesk_server.py
 
-<span class="c"># prints the address + PIN to type into the app</span></pre>
+<span class="c"># prints the address, PIN and certificate fingerprint</span></pre>
     </div>
   </section>
 
@@ -135,7 +135,7 @@ python ctrldesk_server.py
     <details><summary>Which phones work?</summary><p>Android 9 or newer. A few manufacturers disable the Bluetooth keyboard/mouse feature; the app tells you if yours does. iPhone doesn't allow apps to act as a Bluetooth mouse.</p></details>
     <details><summary>Will keep-awake work with my phone locked?</summary><p>Yes. It runs in the background with an ongoing notification you can stop at any time. For long sessions, keep the phone charging.</p></details>
     <details><summary>Why doesn't my laptop see the phone as a mouse?</summary><p>Pair while CtrlDesk is open on the Bluetooth screen. If you paired earlier, remove the phone from the laptop's Bluetooth list and pair again.</p></details>
-    <details><summary>Does CtrlDesk collect any data?</summary><p>No. There's no account, analytics or server. See the <a href="privacy.html">privacy policy</a>.</p></details>
+    <details><summary>Does CtrlDesk collect any data?</summary><p>We receive no app input or telemetry. Your controls go directly to your chosen laptop over paired Bluetooth or verified TLS, and your saved settings stay in private app storage with Android backup disabled. The optional helper runs on your laptop. See the <a href="privacy.html">privacy policy</a>.</p></details>
   </section>
 </main>
 
@@ -145,7 +145,6 @@ python ctrldesk_server.py
     <span class="mono">[ No account · No cloud · Stays local ]</span>
     <div class="links">
       <a class="mono" href="privacy.html">Privacy</a>
-      <a class="mono" href="mailto:shivkhetan18@gmail.com">Contact</a>
     </div>
   </div>
 </footer>

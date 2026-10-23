@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CtrlDesk Privacy Policy</title>
-<meta name="description" content="CtrlDesk collects no data. Everything stays between your phone and your laptop.">
+<meta name="description" content="How CtrlDesk handles local settings, encrypted laptop connections and data deletion.">
 <link rel="icon" href="img/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,43 +24,30 @@
 </nav>
 
 <main class="legal">
-  <div class="head"><span class="mono">Privacy policy</span><span class="mono">[Updated 23 Oct 2026]</span></div>
-  <h1>We collect<br><b>nothing.</b></h1>
-
-  <p>CtrlDesk ("the app") lets your Android phone control your own laptop as a Bluetooth mouse and keyboard, or over your local Wi-Fi with an optional helper program. It is built so that your data never leaves your devices.</p>
-
-  <h2>Information we collect</h2>
-  <p>None. CtrlDesk has no account, no analytics, no advertising and no servers. We do not collect, store, sell or share any personal or usage data.</p>
-
-  <h2>Information stored on your phone</h2>
-  <ul>
-    <li>The Bluetooth address of the last laptop you connected to, so the app can reconnect automatically.</li>
-    <li>The Wi-Fi helper's address and pairing PIN, if you use Wi-Fi mode.</li>
-    <li>Text snippets you save and your presentation-app choice.</li>
-  </ul>
-  <p>This information stays on your phone and is deleted when you uninstall the app.</p>
-
-  <h2>Information sent to your laptop</h2>
-  <p>Mouse movements, clicks and key presses travel directly from your phone to the laptop you paired with, over Bluetooth or your local network. They are not sent to us or to anyone else.</p>
-
-  <h2>Permissions</h2>
-  <ul>
-    <li><b>Nearby devices (Bluetooth):</b> to act as a mouse and keyboard and to be visible while pairing.</li>
-    <li><b>Notifications:</b> to show that CtrlDesk is connected or keeping your laptop awake.</li>
-    <li><b>Network:</b> only for the optional Wi-Fi mode on your local network.</li>
-  </ul>
-
-  <h2>Third parties</h2>
-  <p>The app contains no third-party analytics, advertising or tracking libraries.</p>
-
-  <h2>Children</h2>
-  <p>CtrlDesk is not directed at children under 13 and does not knowingly collect information from anyone.</p>
-
-  <h2>Changes</h2>
-  <p>If this policy changes, the updated version will be posted on this page with a new date.</p>
-
-  <h2>Contact</h2>
-  <p>Questions about this policy: <a href="mailto:shivkhetan18@gmail.com">shivkhetan18@gmail.com</a></p>
+<h1>CtrlDesk<br><b>Privacy policy</b></h1>
+<p>Updated 23 October 2026</p>
+<h2>Who we are</h2>
+<p>CtrlDesk is provided by Shiv Khetan. Privacy questions: <a href="mailto:shivkhetan18@gmail.com">shivkhetan18@gmail.com</a>.</p>
+<h2>What the app does</h2>
+<p>CtrlDesk sends mouse movements, clicks, key presses, text you type or choose from saved snippets, and keep-awake instructions directly to the laptop you connect. Only use it with devices you own or have permission to control.</p>
+<h2>What the developer receives</h2>
+<p>We operate no app servers and receive no app input, device identifiers or usage data. The app has no accounts, advertising, analytics or tracking SDKs. We do not sell user data.</p>
+<h2>Information saved on your phone</h2>
+<p>The app saves the last Bluetooth laptop address, Wi-Fi helper address, pairing PIN and certificate fingerprint, text snippets, presentation choice, appearance, and keep-awake typing preferences. These support reconnecting and your chosen controls. They are stored in the app&#x27;s private storage, not on our servers.</p>
+<h2>Information sent to your laptop</h2>
+<p>Bluetooth uses Android&#x27;s Bluetooth pairing and security. Wi-Fi uses TLS 1.2 or newer, with the laptop certificate verified against the SHA-256 fingerprint you enter from the helper. The PIN and commands are sent only after that verification. Do not use a fingerprint supplied by an untrusted person or device. There is no unencrypted Wi-Fi fallback. Only the phone and your chosen laptop can read the Wi-Fi session.</p>
+<p>The optional helper runs on your laptop, not on a developer server. It processes commands to control that laptop and prints connection addresses and command errors locally. It saves its pairing PIN in .ctrldesk_pin and its TLS certificate and private key in .ctrldesk_tls.pem in your home directory. Keep these files private. Text entered into another application on your laptop is subject to that application&#x27;s storage and privacy practices.</p>
+<h2>Permissions</h2>
+<p>Nearby devices lets the phone act as a Bluetooth mouse and keyboard and pair with your laptop. Notifications show an active Bluetooth connection or keep-awake session and provide stop controls. Network access supports the optional encrypted Wi-Fi connection. A foreground service and wake lock keep user-started Bluetooth control working while the phone is locked.</p>
+<h2>Retention, deletion and backups</h2>
+<p>Saved settings remain until you change or remove them, clear CtrlDesk&#x27;s app storage in Android Settings, or uninstall the app. You can delete individual text snippets by long-pressing them. Clearing storage removes saved pairing details, snippets and preferences. Android system Bluetooth pairings are managed separately in Bluetooth settings.</p>
+<p>This version disables Android cloud backup and excludes app data from device-to-device transfer. It cannot delete backup copies made by older versions; those are controlled by your device and backup provider. Removing the phone app does not delete text already entered on your laptop or the helper&#x27;s local files. Stop the helper and delete .ctrldesk_pin and .ctrldesk_tls.pem on the laptop to remove its pairing credentials.</p>
+<h2>Website and support</h2>
+<p>The in-app policy is available offline. Opening our public website in a browser uses GitHub Pages and may load Google Fonts; those services handle ordinary website requests under their own policies. If you email support, we receive the information you choose to include and use it to respond. You can request deletion of support correspondence by emailing the same address, subject to legal retention obligations.</p>
+<h2>Children</h2>
+<p>CtrlDesk is a general productivity tool intended for adults, not an app directed at children. We do not knowingly collect children&#x27;s information.</p>
+<h2>Changes</h2>
+<p>Policy updates will be included in the app and published at https://shiv-khetan.github.io/ctrldesk/privacy.html with a new date.</p>
 </main>
 
 <footer>
