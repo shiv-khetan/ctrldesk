@@ -19,7 +19,7 @@ PORT = 8765
 PIN_FILE = Path.home() / ".ctrldesk_pin"
 TLS_FILE = Path.home() / ".ctrldesk_tls.pem"
 MOD = "command" if sys.platform == "darwin" else "ctrl"
-WHEEL = 40 if sys.platform == "win32" else 1  # Windows scroll units are 1/120 of a notch
+WHEEL = 120 if sys.platform == "win32" else 1  # one notch, same as Bluetooth
 BUTTONS = {"left", "right", "middle"}
 KEYS = set(pyautogui.KEYBOARD_KEYS)
 
@@ -47,6 +47,8 @@ MAX_LINE = 64 * 1024  # longest command accepted after login
 
 def key(k):
     k = MOD if k == "mod" else k
+    if sys.platform == "darwin" and k == "win":
+        k = "command"  # custom shortcuts saved with Win mean Cmd on a Mac
     if k not in KEYS:
         raise ValueError(f"unknown key {k!r}")
     return k
@@ -201,7 +203,7 @@ class Client(socketserver.StreamRequestHandler):
             return
         self.request.settimeout(None)
         with input_lock:
-            hello = {"ok": True, "jiggle": jiggle_every, "phrase": jiggle_phrase,
+            hello = {"ok": True, "os": sys.platform, "jiggle": jiggle_every, "phrase": jiggle_phrase,
                      "left": max(0, jiggle_until - time.monotonic()) if jiggle_until else 0}
         self.wfile.write(json.dumps(hello).encode() + b"\n")
         print(f"Connected: {self.client_address[0]}")
