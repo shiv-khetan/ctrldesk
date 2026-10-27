@@ -1,4 +1,5 @@
 """CtrlDesk companion. Run on the laptop: python ctrldesk_server.py"""
+import collections
 import json
 import os
 import random
@@ -6,6 +7,7 @@ import secrets
 import socket
 import socketserver
 import ssl
+import subprocess
 import sys
 import threading
 import time
@@ -36,12 +38,15 @@ manual_lock = threading.Lock()
 manual_waiters = 0
 manual_cancel = threading.Event()
 fail_lock = threading.Lock()
-MAX_FAILS = 10
+MAX_FAILS = 10  # wrong PINs from one device before that device is locked out
 LOCKOUT_S = 15 * 60
-fails = 0
-locked_until = 0.0
-next_attempt = 0.0
+GLOBAL_MAX_FAILS = 100  # wrong PINs from everyone within LOCKOUT_S before all new logins wait
+sources = {}  # client address -> [wrong PINs, next attempt allowed at, locked until]
+recent_fails = collections.deque()  # times of recent wrong PINs from anyone
+global_locked_until = 0.0
 MAX_CONNECTIONS = 8
+MAX_UNAUTHED = 4  # of those, how many may still be logging in
+AUTH_DEADLINE_S = 10  # the whole login (TLS handshake + PIN), however slowly a client sends
 MAX_LINE = 64 * 1024  # longest command accepted after login
 
 
@@ -50,13 +55,13 @@ def key(k):
     if sys.platform == "darwin" and k == "win":
         k = "command"  # custom shortcuts saved with Win mean Cmd on a Mac
     if k not in KEYS:
-        raise ValueError(f"unknown key {k!r}")
+        raise ValueError("unknown key")  # never echo client data into the log
     return k
 
 
 def button(b):
     if b not in BUTTONS:
-        raise ValueError(f"unknown button {b!r}")
+        raise ValueError("unknown button")
     return b
 
 
@@ -115,7 +120,7 @@ def run(m, pressed=None):
         elif t == "nudge":
             nudge()
         else:
-            raise ValueError(f"unknown command {t!r}")
+            raise ValueError("unknown command")
 
 
 def nudge():
@@ -167,30 +172,67 @@ def jiggler():
             print(f"Jiggler error: {e}")
 
 
-def pin_ok(pin, now=time.monotonic):
-    """Reject throttled attempts immediately; MAX_FAILS locks out even the right PIN."""
-    global fails, locked_until, next_attempt
+def reset_throttle():
+    global global_locked_until
+    with fail_lock:
+        sources.clear()
+        recent_fails.clear()
+        global_locked_until = 0.0
+
+
+def pin_ok(pin, source="", now=time.monotonic):
+    """Check a PIN without ever sleeping. Each device is throttled (one try per 2 s) and locked
+    out after MAX_FAILS wrong PINs, so a stranger cannot lock out the real phone; a global
+    budget stops guessing spread across many addresses."""
+    global global_locked_until
     with fail_lock:
         current = now()
-        if current < locked_until or current < next_attempt:
+        state = sources.setdefault(source, [0, 0.0, 0.0])
+        if current < global_locked_until or current < state[2] or current < state[1]:
             return False
         if secrets.compare_digest(pin.encode(), PIN.encode()):
-            fails = 0
+            sources.pop(source, None)
             return True
-        fails += 1
-        next_attempt = current + 2
-        if fails >= MAX_FAILS:
-            fails = 0
-            locked_until = current + LOCKOUT_S
-            print(f"Too many wrong PINs: logins locked for {LOCKOUT_S // 60} minutes.")
+        state[0] += 1
+        state[1] = current + 2
+        if state[0] >= MAX_FAILS:
+            state[0] = 0
+            state[2] = current + LOCKOUT_S
+            print(f"Too many wrong PINs from {source}: locked out for {LOCKOUT_S // 60} minutes.")
+        recent_fails.append(current)
+        while recent_fails[0] <= current - LOCKOUT_S:
+            recent_fails.popleft()
+        if len(recent_fails) >= GLOBAL_MAX_FAILS:
+            recent_fails.clear()
+            global_locked_until = current + LOCKOUT_S
+            print(f"Too many wrong PINs overall: new logins wait {LOCKOUT_S // 60} minutes.")
+        if len(sources) > 1000:  # forget devices with nothing pending
+            for k in [k for k, v in sources.items() if v[0] == 0 and v[1] <= current and v[2] <= current]:
+                del sources[k]
         return False
+
+
+def hang_up(sock):
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
 
 
 class Client(socketserver.StreamRequestHandler):
     def setup(self):
+        # One deadline for the whole login; per-read timeouts alone let a client drip forever.
+        # Hang up on self.request as it is then: TLS wrapping takes over the raw socket.
+        self.login_timer = threading.Timer(AUTH_DEADLINE_S, lambda: hang_up(self.request))
+        self.login_timer.daemon = True
+        self.login_timer.start()
         self.request.settimeout(5)
         self.request = self.server.tls.wrap_socket(self.request, server_side=True)
         super().setup()
+
+    def finish(self):
+        self.login_timer.cancel()
+        super().finish()
 
     def handle(self):
         self.request.settimeout(10)
@@ -198,9 +240,11 @@ class Client(socketserver.StreamRequestHandler):
             pin = str(json.loads(self.rfile.readline(256))["pin"])
         except (OSError, ValueError, KeyError, TypeError):
             return
-        if not pin_ok(pin):
+        if not pin_ok(pin, self.client_address[0]):
             self.wfile.write(b'{"ok": false}\n')
             return
+        self.login_timer.cancel()
+        self.server.authenticated()
         self.request.settimeout(None)
         with input_lock:
             hello = {"ok": True, "os": sys.platform, "jiggle": jiggle_every, "phrase": jiggle_phrase,
@@ -216,7 +260,7 @@ class Client(socketserver.StreamRequestHandler):
                 try:
                     run(json.loads(line), pressed)
                 except Exception as e:
-                    print(f"Ignored bad command: {e}")
+                    print(f"Ignored bad command ({type(e).__name__})")  # never its content
         except OSError:
             pass
         finally:
@@ -237,22 +281,38 @@ class Server(socketserver.ThreadingTCPServer):
     def __init__(self, address, handler, tls):
         self.tls = tls
         self.connections = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        self.unauthed = threading.BoundedSemaphore(MAX_UNAUTHED)
+        self.local = threading.local()  # per worker: has this client logged in?
         super().__init__(address, handler)
 
     def process_request(self, request, client_address):
         if not self.connections.acquire(blocking=False):
             self.close_request(request)
             return
+        if not self.unauthed.acquire(blocking=False):  # strangers cannot fill every slot
+            self.connections.release()
+            self.close_request(request)
+            return
         try:
             super().process_request(request, client_address)
         except Exception:
+            self.unauthed.release()
             self.connections.release()
             raise
 
+    def authenticated(self):
+        """Client.handle after a right PIN: its logging-in slot goes to the next device."""
+        if not getattr(self.local, "authed", False):
+            self.local.authed = True
+            self.unauthed.release()
+
     def process_request_thread(self, request, client_address):
+        self.local.authed = False
         try:
             super().process_request_thread(request, client_address)
         finally:
+            if not self.local.authed:
+                self.unauthed.release()
             self.connections.release()
 
 
@@ -277,6 +337,7 @@ def load_tls(path=TLS_FILE):
             serialization.NoEncryption())
         with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as f:
             f.write(data)
+    private_file(path)
     cert = x509.load_pem_x509_certificate(path.read_bytes())
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -298,7 +359,22 @@ def load_pin(path=PIN_FILE):
         # owner-only (0600), so other accounts on this laptop cannot read the PIN
         with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as f:
             f.write(f"{secrets.randbelow(10**6):06d}")
+    private_file(path)
     return path.read_text().strip()
+
+
+def private_file(path):
+    """Owner-only, also for files made by older versions. 0600 does nothing on Windows, so
+    there drop inherited access and grant only the signed-in user."""
+    if os.name == "nt":
+        user = os.environ.get("USERNAME", "")
+        domain = os.environ.get("USERDOMAIN", "")
+        who = f"{domain}\\{user}" if domain else user
+        if user:
+            subprocess.run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{who}:F"],
+                           capture_output=True, check=False)
+    else:
+        os.chmod(path, 0o600)
 
 
 if __name__ == "__main__":
