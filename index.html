@@ -115,16 +115,16 @@
       <div>
         <div class="mono">Optional · Wi-Fi helper</div>
         <h2 style="margin-bottom:14px">Any keyboard layout,<br><b>any OS.</b></h2>
-        <p>Prefer Wi-Fi, use a Mac or Linux, or type in a non-US layout? Run the CtrlDesk helper on your laptop and connect over TLS. Enter its address, PIN and certificate fingerprint in the app to verify your laptop before sending any input.</p>
+        <p>Prefer Wi-Fi, use a Mac or Linux, or type in a non-US layout? Run the CtrlDesk helper on your laptop and connect over TLS. Scan the QR code it shows, or type its address, PIN and certificate fingerprint, so the app verifies your laptop before sending any input.</p>
         <div class="cta" style="margin-top:22px">
           <a class="btn yellow" href="download/ctrldesk_server.py" download>Download helper <span class="arrow">↓</span></a>
         </div>
       </div>
       <pre><span class="c"># needs Python 3</span>
-pip install pyautogui cryptography
+pip install pyautogui cryptography qrcode
 python ctrldesk_server.py
 
-<span class="c"># prints the address, PIN and certificate fingerprint</span></pre>
+<span class="c"># shows a QR code to scan, plus the address, PIN and fingerprint</span></pre>
     </div>
   </section>
 

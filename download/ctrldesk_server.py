@@ -16,6 +16,11 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 import pyautogui
+from urllib.parse import urlencode
+try:
+    import qrcode  # optional: shows a code the phone can scan instead of typing
+except ImportError:
+    qrcode = None
 
 PORT = 8765
 PIN_FILE = Path.home() / ".ctrldesk_pin"
@@ -377,12 +382,33 @@ def private_file(path):
         os.chmod(path, 0o600)
 
 
+def pairing_link(address, pin, fingerprint):
+    """What the phone app's "Scan QR code" button reads."""
+    return "ctrldesk://wifi?" + urlencode({"host": address, "pin": pin, "fp": fingerprint})
+
+
+def show_qr(link):
+    if qrcode is None:
+        print("Tip: pip install qrcode to show a QR code the phone can scan instead of typing.\n")
+        return
+    code = qrcode.QRCode(border=2)
+    code.add_data(link)
+    try:
+        code.print_ascii(invert=True)
+    except UnicodeEncodeError:  # console without Unicode blocks
+        print("This console can't draw the QR code; type the details below instead.")
+    print("Scan with Scan QR code in the CtrlDesk app, or type:")
+
+
 if __name__ == "__main__":
     PIN = load_pin()
     tls, fingerprint = load_tls()
     threading.Thread(target=jiggler, daemon=True).start()
     with Server(("0.0.0.0", PORT), Client, tls) as server:
-        print(f"CtrlDesk ready (TLS)\n  Address: {lan_ip()}\n  PIN:     {PIN}")
+        address = lan_ip()
+        print("CtrlDesk ready (TLS)")
+        show_qr(pairing_link(address, PIN, fingerprint))
+        print(f"  Address: {address}\n  PIN:     {PIN}")
         print(f"  Certificate SHA-256: {fingerprint}\n")
         print("Enter this fingerprint in the phone app before connecting. Never accept one supplied by another device.")
         print(f"Keep {TLS_FILE} private. Deleting it creates a new identity and requires pairing again.")
