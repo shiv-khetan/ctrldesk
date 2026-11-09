@@ -50,6 +50,8 @@ nav .links a.mono:hover { color: var(--text); }
 .btn.dark .arrow { background: var(--yellow); color: var(--ink); }
 .btn.small { height: 42px; padding: 0 6px 0 18px; font-size: 14px; }
 .btn.small .arrow { width: 30px; height: 30px; font-size: 15px; }
+.btn .arrow svg { width: 20px; height: 20px; }
+.btn.small .arrow svg { width: 16px; height: 16px; }
 
 /* hero */
 .hero { display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: center; padding: 72px 0 56px; }
